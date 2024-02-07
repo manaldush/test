@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     }
 
     FILE* inputFilePtr = getFile(inputFile, "r");
-    if (inputFile == NULL) {
+    if (inputFilePtr == NULL) {
         exit(EXIT_FAILURE);
     }
 
