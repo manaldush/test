@@ -1,57 +1,53 @@
 #include <stdio.h>
 #include <math.h>
-
-typedef struct TableEntry {
-    const char* word;
-    int counter; 
-} TableEntry;
-
-typedef struct Table {
-    TableEntry* entries;
-    int length;
-} Table;
-
-void insertWord(Table* table, const char* word);
-
-void rebalanceTable(Table* table);
-
-long long hashFunction(const char* word);
+#include <stdlib.h>
+#include <string.h>
+#include "table.h"
+#include "files.h"
 
 int main(int argc, char **argv) {
-
-    return 0;
-}
-
-long long hashFunction(const char* word) {
-    int p = 31;
-    long long hash = 0;
-    for (int i=0; *(word) != '\0'; word++) 
-    {
-        hash += ((*word) - 'a' + 1) * pow(p, i);
+    
+    if (argc < 2) {
+       fprintf(stderr, "Input parameters are missed\n");
+       return EXIT_FAILURE;
     }
 
-    return hash;
-}
-
-char lowerCase(char ch) {
-    if (ch >= 65 && ch <= 90) {
-        ch+=32;
+    const char* inputFile = argv[1];
+    FILE* f = openFile(inputFile);
+    if (f == NULL) {
+        return EXIT_FAILURE;
     }
-    return ch;
-}
 
-void insertWord(Table* table, const char* word) {
-    int k = 1;
-    long long hash = hashFunction(word);
-    for(int i = 0; i < (*table).length; i++) {
-        int index = (hash + i * k) % (*table).length;
-        TableEntry e = (*table).entries[index];
-        if (e.counter == 0) {
-            e.word = word;
-            e.counter++;
-            return;
+    Table* table = callocTable();
+    if (table == NULL) {
+        fclose(f);
+        return EXIT_FAILURE;
+    }
+
+    char word[65];
+    ReadResult readResult;
+    int res = EXIT_SUCCESS;
+    while (((readResult = readNextWord(f, word, 64)) == SUCCESS || readResult == END_OF_FILE)) {
+        if (*word != '\0' && !insertTableWord(table, word)) {
+            fprintf(stderr, "Word %s can't be inserted in table\n", word);
+            res = EXIT_FAILURE;
+            break;
+        }
+        if (readResult == END_OF_FILE) {
+            printf("End of file is reached\n");
+            break;
         }
     }
-    //TODO
-    rebalanceTable(table);
+
+    if (readResult == END_OF_FILE && res == EXIT_SUCCESS) {
+        printTable(table);
+    } else {
+        fprintf(stderr, "Table can't be printed\n");
+        res = EXIT_FAILURE;
+    }
+
+    fclose(f);
+    freeTable(table);
+
+    return res;
 }

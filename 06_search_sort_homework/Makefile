@@ -1,10 +1,10 @@
-NAME := converter
+NAME := wordsCounter
 
 SRC_DIR     := src
 OBJ_DIR     := obj
 BUILD_DIR   := build
 SRCS        := \
-	main.c
+	main.c table.c files.c
 SRCS        := $(SRCS:%=$(SRC_DIR)/%)
 OBJS        := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
