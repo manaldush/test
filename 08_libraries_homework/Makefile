@@ -8,7 +8,7 @@ endif
 
 JSONC_EXIST := $(shell pkg-config --exists json-c; echo $$?)
 
-ifneq ($(JSONC_EXIST),1)
+ifneq ($(JSONC_EXIST),0)
     $(error "Json-c library isn't installed...")
 endif
 
@@ -41,5 +41,8 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 clean:
 	$(RM) $(OBJS)
 	$(RM) $(FULL_NAME)
+
+cppcheck:
+	cppcheck -q -j4 --enable=warning,style,performance,portability $(SRC_DIR)
 
 .PHONY: clean
