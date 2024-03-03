@@ -96,7 +96,7 @@ m:
 
     push rbp
     push rbx
-# заменяем call на jmp, экономим размер стека + jmp эффективнее
+; заменяем call на jmp, экономим размер стека + jmp эффективнее
 repeatm:
     mov rbx, rdi
     mov rbp, rsi
@@ -150,7 +150,7 @@ ff:
     mov rdi, [rbx + 8]
     mov rdx, r13
     test rdi, rdi
-# заменяем call на jmp, экономим размер стека + jmp эффективнее
+; заменяем call на jmp, экономим размер стека + jmp эффективнее
     jnz repeatf
 
     mov rax, rsi
@@ -197,7 +197,7 @@ adding_loop:
     mov rdi, empty_str
     call puts
 
-#memory leak fix
+;memory leak fix
     pop rdi
     call free_list
     pop rdi
