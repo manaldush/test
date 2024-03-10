@@ -53,3 +53,5 @@ Mkfile.old
 dkms.conf
 materials
 08_libraries_homework/libs
+12-unix-homework
+13-posix-homework/clib
