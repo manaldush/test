@@ -3,6 +3,8 @@
 #include <string.h>
 #include <curl/curl.h>
 #include <json.h>
+#include <stdbool.h>
+
 
 #define URL_MAX_PATH_LENGTH 70
 
@@ -28,6 +30,41 @@ static size_t cb(const void *data, size_t size, size_t nmemb, void *clientp)
     mem->response[mem->size] = 0;
  
     return realsize;
+}
+
+static bool printWheather(struct json_object *jobj) {
+
+    struct json_object *current_conditions, *current_condition, *weatherDescs, *weatherDesc,*attr;
+
+    if(!json_object_object_get_ex(jobj, "current_condition", &current_conditions)) {
+        return false;
+    };
+
+    current_condition = json_object_array_get_idx(current_conditions, 0);
+    if (current_condition == NULL) {
+        return false;
+    }
+
+    if(json_object_object_get_ex(current_condition, "temp_C", &attr)) {
+        printf("temp C = %s\n", json_object_get_string(attr));
+    }
+
+    if(json_object_object_get_ex(current_condition, "windspeedKmph", &attr)) {
+        printf("windspeedKmph = %s\n", json_object_get_string(attr));
+    }
+
+    if(json_object_object_get_ex(current_condition, "winddir16Point", &attr)) {
+        printf("winddir16Point = %s\n", json_object_get_string(attr));
+    }
+
+
+    if(json_object_object_get_ex(current_condition, "weatherDesc", &weatherDescs) &&
+            ((weatherDesc = json_object_array_get_idx(weatherDescs, 0)) != NULL) &&
+            json_object_object_get_ex(weatherDesc, "value", &attr)) {
+        printf("Description = %s\n", json_object_get_string(attr));
+    }
+
+    return true;
 }
 
 int main(int argc, char** argv) {
@@ -59,40 +96,34 @@ int main(int argc, char** argv) {
         /* Perform the request, res will get the return code */
         res = curl_easy_perform(curl);
         /* Check for errors */
-        if(res != CURLE_OK || data.response == NULL)
-            fprintf(stderr, "curl_easy_perform() failed: %s\n",
-            curl_easy_strerror(res));
+        if(res != CURLE_OK || data.response == NULL) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            return EXIT_FAILURE;
+        }
  
         /* always cleanup */
         curl_easy_cleanup(curl);
 
-        struct json_object *jobj, *current_conditions, *current_condition, *weatherDescs, *weatherDesc,*attr;
+        struct json_object *jobj;
         jobj = json_tokener_parse(data.response);
 
-        json_object_object_get_ex(jobj, "current_condition", &current_conditions);
-        current_condition = json_object_array_get_idx(current_conditions, 0);
+        if (data.response != NULL) {
+            free(data.response);
+        }
 
-        json_object_object_get_ex(current_condition, "temp_C", &attr);
-        printf("temp C = %s\n", json_object_get_string(attr));
+        if (jobj == NULL) {
+            return EXIT_FAILURE;
+        }
 
-        json_object_object_get_ex(current_condition, "windspeedKmph", &attr);
-        printf("windspeedKmph = %s\n", json_object_get_string(attr));
+        bool res = printWheather(jobj);
+        json_object_put(jobj);
 
-        json_object_object_get_ex(current_condition, "winddir16Point", &attr);
-        printf("winddir16Point = %s\n", json_object_get_string(attr));
+        if (!res)
+            return EXIT_FAILURE;
 
-
-        json_object_object_get_ex(current_condition, "weatherDesc", &weatherDescs);
-        weatherDesc = json_object_array_get_idx(weatherDescs, 0);
-        json_object_object_get_ex(weatherDesc, "value", &attr);
-        printf("Description = %s\n", json_object_get_string(attr));
 
     } else {
         return EXIT_FAILURE;
-    }
-
-    if (data.response != NULL) {
-        free(data.response);
     }
 
     return EXIT_SUCCESS;
