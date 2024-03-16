@@ -67,6 +67,45 @@ static bool printWheather(struct json_object *jobj) {
     return true;
 }
 
+static bool performRequest(body* data, char* url) {
+    CURL *curl = NULL;
+    CURLcode curlCode;
+    bool reqResult = false;
+ 
+    curl = curl_easy_init();
+    if(curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cb);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)data);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+ 
+        /* Perform the request, res will get the return code */
+        curlCode = curl_easy_perform(curl);
+        /* Check for errors */
+        if(curlCode != CURLE_OK || data->response == NULL) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(curlCode));
+            goto cleanup;
+        }
+        long codep;
+        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &codep);
+        if (codep == 404) {
+            fprintf(stderr, "Unknown city value\n");
+            goto cleanup;
+        }
+        if (codep != 200) {
+            fprintf(stderr, "Error HTTP response code = %ld\n", codep);
+            goto cleanup;
+        }
+        reqResult = true;
+    }
+
+    cleanup:
+    if (curl) {
+        curl_easy_cleanup(curl);
+    }
+    return reqResult;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
        fprintf(stderr, "Input parameters are missed\n");
@@ -82,27 +121,9 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    CURL *curl;
-    CURLcode res;
     body data = {NULL, 0};
- 
-    curl = curl_easy_init();
-    if(curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&data);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
- 
-        /* Perform the request, res will get the return code */
-        res = curl_easy_perform(curl);
-        /* Check for errors */
-        if(res != CURLE_OK || data.response == NULL) {
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-            return EXIT_FAILURE;
-        }
- 
-        /* always cleanup */
-        curl_easy_cleanup(curl);
+
+    if(performRequest(&data, &url[0])) {
 
         struct json_object *jobj;
         jobj = json_tokener_parse(data.response);
