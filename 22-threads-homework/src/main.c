@@ -14,6 +14,7 @@ typedef struct DirInfo
 
 
 int runReaderThread(void* arg);
+int runWorkerThread(void* arg);
 
 int main(int argc, char** argv) {
     DirInfo dirInfo;
@@ -48,24 +49,43 @@ int main(int argc, char** argv) {
         goto dirCloseLabel;
     }
 
+    //start worker threads
+    thrd_t* workerThreads = malloc(threadNumber * sizeof(thrd_t));
+    int startedWorkerThreadNumber = 0;
+    for(;startedWorkerThreadNumber < threadNumber; startedWorkerThreadNumber++) {
+        if(thrd_create(&workerThreads[startedWorkerThreadNumber], runWorkerThread, &dirInfo) != thrd_success) {
+            fprintf(stderr, "Worker thread can't be created\n");
+            status = EXIT_FAILURE;
+            goto workersCloseLabel;
+        }
+    }
+
     // start reader thread
     thrd_t readerThread;
     int readerThreadResult;
     if(thrd_create(&readerThread, runReaderThread, &dirInfo) != thrd_success) {
         fprintf(stderr, "Reader thread can't be created\n");
         status = EXIT_FAILURE;
-        goto dirCloseLabel;
+        goto workersCloseLabel;
     }
 
     if (thrd_join(readerThread, &readerThreadResult) != thrd_success) {
         thrd_detach(readerThread);
         fprintf(stderr, "Reader thread can't be joined\n");
         status = EXIT_FAILURE;
-        goto dirCloseLabel;
+        goto workersCloseLabel;
     }
 
 
-
+    workersCloseLabel:
+    while(workerThreads < 0) {
+        if (thrd_join(readerThread, &readerThreadResult) != thrd_success) {
+            thrd_detach(readerThread);
+            fprintf(stderr, "Worker thread can't be joined\n");
+            status = EXIT_FAILURE;
+            workerThreads--;
+        }
+    }
     dirCloseLabel:
     closedir(dirInfo.dir);
     exitLabel:
@@ -93,4 +113,7 @@ int runReaderThread(void* arg) {
     }
 
     return 0;
+}
+
+int runWorkerThread(void* arg) {
 }
