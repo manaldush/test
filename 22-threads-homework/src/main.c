@@ -5,6 +5,10 @@
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "stack.h"
+#include "file.h"
+
+#define LINE_MAX_SIZE 1000
 
 typedef struct DirInfo
 {
@@ -12,6 +16,10 @@ typedef struct DirInfo
     const char* dirName;
 } DirInfo;
 
+struct LinesStack* linesStack;
+cnd_t condition;
+mtx_t mutex;
+volatile bool stopSignal = false;
 
 int runReaderThread(void* arg);
 int runWorkerThread(void* arg);
@@ -47,6 +55,18 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Input parameter number of threads has invalid value\n");
         status = EXIT_FAILURE;
         goto dirCloseLabel;
+    }
+
+    linesStack = initStack();
+    if (linesStack == NULL)
+        goto dirCloseLabel;
+
+    if (thrd_success != cnd_init(&condition)) {
+        goto freeStack;
+    }
+
+    if (thrd_success != mtx_init(&mutex, mtx_plain)) {
+        goto closeCondition;
     }
 
     //start worker threads
@@ -86,6 +106,13 @@ int main(int argc, char** argv) {
             workerThreads--;
         }
     }
+
+    closeMutex:
+    mtx_destroy(&mutex);
+    closeCondition:
+    cnd_destroy(&condition);
+    freeStack:
+    destroyStack(linesStack);
     dirCloseLabel:
     closedir(dirInfo.dir);
     exitLabel:
@@ -94,6 +121,28 @@ int main(int argc, char** argv) {
 
 void readLogFile(const char* fileName) {
     printf("File name: %s\n", fileName);
+
+    FILE* f = openFile(fileName);
+    if (f == NULL) {
+        return;
+    }
+    char* line = calloc(LINE_MAX_SIZE, sizeof(char));
+    while (readLine(f, line, LINE_MAX_SIZE) != NULL)
+    {
+        bool isPushed = false;
+        repeatPush:
+        mtx_lock(&mutex);
+        if (isPushed = push(&linesStack, line)) {
+            cnd_signal(&condition);
+        }
+        mtx_unlock(&mutex);
+        if (!isPushed) {
+            thrd_sleep(&(struct timespec){.tv_nsec=1000}, NULL);
+            goto repeatPush;
+        }
+    }
+    
+    closeFile(f);
 }
 
 int runReaderThread(void* arg) {
@@ -116,4 +165,16 @@ int runReaderThread(void* arg) {
 }
 
 int runWorkerThread(void* arg) {
+    for(;;) {
+        struct LineEntry* e;
+        if (mtx_timedlock(&mutex, &(struct timespec){.tv_nsec=1000})) {
+            while ((e = pop(linesStack)) == NULL) {
+                cnd_wait(&condition, &mutex);
+            }
+            pthread_mutex_unlock(&mutex);
+        } else if (stopSignal) {
+            return;
+        }
+        //TODO process entry
+    }
 }

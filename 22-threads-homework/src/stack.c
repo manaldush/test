@@ -35,6 +35,8 @@ struct LineEntry* pop(struct LinesStack* q) {
 
 struct LinesStack* initStack() {
     struct LinesStack* s = (struct LinesStack*) malloc(sizeof(struct LinesStack));
+    if (s == NULL)
+        return NULL;
     s->length = 0;
     s->top = NULL;
 }
@@ -43,6 +45,7 @@ void destroyStack(struct LinesStack* stack) {
     struct LineEntry* e;
     while ((e = pop(stack) != NULL))
     {
+        free(e->line);
         free(e);
     }
     free(stack);
