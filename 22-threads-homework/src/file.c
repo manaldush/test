@@ -1,5 +1,6 @@
 #include "file.h"
 #include <errno.h>
+#include <string.h>
 
 FILE* openFile(const char* fileName) {
    FILE* file = fopen(fileName, "r");
@@ -15,6 +16,6 @@ void closeFile(FILE* file) {
     fclose(file);
 }
 
-char* readLine(FILE* file, const char* line, int size) {
+char* readLine(FILE* file, char* line, int size) {
     return fgets(line, size, file);
 }

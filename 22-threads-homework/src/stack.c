@@ -1,5 +1,7 @@
 #include "stack.h"
 #include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 struct LineEntry {
     char* line;
@@ -39,15 +41,22 @@ struct LinesStack* initStack() {
         return NULL;
     s->length = 0;
     s->top = NULL;
+    return s;
 }
 
 void destroyStack(struct LinesStack* stack) {
     struct LineEntry* e;
-    while ((e = pop(stack) != NULL))
+    while ((e = pop(stack)) != NULL)
     {
         free(e->line);
         free(e);
     }
     free(stack);
     
+}
+
+void printLineEntry(struct LineEntry* e) {
+    if (e != NULL && e->line != NULL) {
+        printf("%s", e->line);
+    }
 }

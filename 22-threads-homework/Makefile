@@ -4,7 +4,7 @@ SRC_DIR     := src
 OBJ_DIR     := obj
 BUILD_DIR   := build
 SRCS        := \
-	main.c stack.c file.c
+	main.c stack.c file.c line.c
 SRCS        := $(SRCS:%=$(SRC_DIR)/%)
 OBJS        := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 

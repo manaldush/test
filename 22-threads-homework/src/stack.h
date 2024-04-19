@@ -12,3 +12,5 @@ struct LineEntry* pop(struct LinesStack* q);
 struct LinesStack* initStack();
 
 void destroyStack(struct LinesStack* stack);
+
+void printLineEntry(struct LineEntry* e);

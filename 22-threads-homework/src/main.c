@@ -8,7 +8,7 @@
 #include "stack.h"
 #include "file.h"
 
-#define LINE_MAX_SIZE 1000
+#define LINE_MAX_SIZE 2000
 
 typedef struct DirInfo
 {
@@ -71,13 +71,16 @@ int main(int argc, char** argv) {
 
     //start worker threads
     thrd_t* workerThreads = malloc(threadNumber * sizeof(thrd_t));
+    int* threadId = malloc(threadNumber * sizeof(int));
     int startedWorkerThreadNumber = 0;
-    for(;startedWorkerThreadNumber < threadNumber; startedWorkerThreadNumber++) {
-        if(thrd_create(&workerThreads[startedWorkerThreadNumber], runWorkerThread, &dirInfo) != thrd_success) {
+    for(;startedWorkerThreadNumber < threadNumber; ) {
+        threadId[startedWorkerThreadNumber] = startedWorkerThreadNumber;
+        if(thrd_create(&workerThreads[startedWorkerThreadNumber], runWorkerThread, (threadId + startedWorkerThreadNumber)) != thrd_success) {
             fprintf(stderr, "Worker thread can't be created\n");
             status = EXIT_FAILURE;
             goto workersCloseLabel;
         }
+        startedWorkerThreadNumber++;
     }
 
     // start reader thread
@@ -91,24 +94,29 @@ int main(int argc, char** argv) {
 
     if (thrd_join(readerThread, &readerThreadResult) != thrd_success) {
         thrd_detach(readerThread);
-        fprintf(stderr, "Reader thread can't be joined\n");
+        fprintf(stdout, "Reader thread can't be joined\n");
         status = EXIT_FAILURE;
         goto workersCloseLabel;
+    } else {
+        fprintf(stdout, "Reader thread was stopped\n");
     }
 
 
     workersCloseLabel:
-    while(workerThreads < 0) {
-        if (thrd_join(readerThread, &readerThreadResult) != thrd_success) {
+    stopSignal = true;
+    while(startedWorkerThreadNumber > 0) {
+        if (thrd_join(workerThreads[startedWorkerThreadNumber-1], (threadId + startedWorkerThreadNumber-1)) != thrd_success) {
             thrd_detach(readerThread);
             fprintf(stderr, "Worker thread can't be joined\n");
             status = EXIT_FAILURE;
-            workerThreads--;
         }
+        startedWorkerThreadNumber--;
     }
+    free(workerThreads);
+    free(threadId);
 
-    closeMutex:
     mtx_destroy(&mutex);
+    fprintf(stdout, "Mutex destroyed\n");
     closeCondition:
     cnd_destroy(&condition);
     freeStack:
@@ -116,6 +124,7 @@ int main(int argc, char** argv) {
     dirCloseLabel:
     closedir(dirInfo.dir);
     exitLabel:
+    fprintf(stdout, "The end\n");
     return status;
 }
 
@@ -132,7 +141,7 @@ void readLogFile(const char* fileName) {
         bool isPushed = false;
         repeatPush:
         mtx_lock(&mutex);
-        if (isPushed = push(&linesStack, line)) {
+        if ((isPushed = push(linesStack, line))) {
             cnd_signal(&condition);
         }
         mtx_unlock(&mutex);
@@ -160,21 +169,29 @@ int runReaderThread(void* arg) {
         }
         free(path);
     }
+    stopSignal = true;
 
     return 0;
 }
 
 int runWorkerThread(void* arg) {
+    int id = *((int*)arg);
+    printf("Thread %d is started\n", id);
     for(;;) {
         struct LineEntry* e;
         if (mtx_timedlock(&mutex, &(struct timespec){.tv_nsec=1000})) {
             while ((e = pop(linesStack)) == NULL) {
                 cnd_wait(&condition, &mutex);
             }
-            pthread_mutex_unlock(&mutex);
+            mtx_unlock(&mutex);
         } else if (stopSignal) {
-            return;
+            break;
         }
         //TODO process entry
+        //printLineEntry(e);
     }
+
+    printf("Thread %d is stopping\n", id);
+
+    return EXIT_SUCCESS;
 }
