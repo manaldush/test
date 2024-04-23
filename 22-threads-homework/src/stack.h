@@ -13,4 +13,8 @@ struct LinesStack* initStack();
 
 void destroyStack(struct LinesStack* stack);
 
+void destroyLine(struct LineEntry* e);
+
 void printLineEntry(struct LineEntry* e);
+
+char* getLine(struct LineEntry* entry);

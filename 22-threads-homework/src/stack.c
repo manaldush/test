@@ -48,15 +48,23 @@ void destroyStack(struct LinesStack* stack) {
     struct LineEntry* e;
     while ((e = pop(stack)) != NULL)
     {
-        free(e->line);
-        free(e);
+        destroyLine(e);
     }
     free(stack);
     
+}
+
+void destroyLine(struct LineEntry* e) {
+    free(e->line);
+    free(e);
 }
 
 void printLineEntry(struct LineEntry* e) {
     if (e != NULL && e->line != NULL) {
         printf("%s", e->line);
     }
+}
+
+char* getLine(struct LineEntry* entry) {
+    return entry->line;
 }

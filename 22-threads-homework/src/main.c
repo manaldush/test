@@ -7,8 +7,9 @@
 #include <sys/stat.h>
 #include "stack.h"
 #include "file.h"
+#include "line.h"
 
-#define LINE_MAX_SIZE 2000
+#define LINE_MAX_SIZE 1024
 
 typedef struct DirInfo
 {
@@ -93,8 +94,8 @@ int main(int argc, char** argv) {
     }
 
     if (thrd_join(readerThread, &readerThreadResult) != thrd_success) {
-        thrd_detach(readerThread);
         fprintf(stdout, "Reader thread can't be joined\n");
+        thrd_detach(readerThread);
         status = EXIT_FAILURE;
         goto workersCloseLabel;
     } else {
@@ -105,10 +106,13 @@ int main(int argc, char** argv) {
     workersCloseLabel:
     stopSignal = true;
     while(startedWorkerThreadNumber > 0) {
-        if (thrd_join(workerThreads[startedWorkerThreadNumber-1], (threadId + startedWorkerThreadNumber-1)) != thrd_success) {
-            thrd_detach(readerThread);
+        int id = startedWorkerThreadNumber-1;
+        if (thrd_join(workerThreads[id], (threadId + id)) != thrd_success) {
             fprintf(stderr, "Worker thread can't be joined\n");
+            thrd_detach(workerThreads[startedWorkerThreadNumber-1]);
             status = EXIT_FAILURE;
+        } else {
+            printf("Worker thread %d has been stopped\n", id);
         }
         startedWorkerThreadNumber--;
     }
@@ -128,6 +132,7 @@ int main(int argc, char** argv) {
     return status;
 }
 
+
 void readLogFile(const char* fileName) {
     printf("File name: %s\n", fileName);
 
@@ -135,9 +140,12 @@ void readLogFile(const char* fileName) {
     if (f == NULL) {
         return;
     }
-    char* line = calloc(LINE_MAX_SIZE, sizeof(char));
-    while (readLine(f, line, LINE_MAX_SIZE) != NULL)
+    while (1)
     {
+        char* line = calloc(LINE_MAX_SIZE, sizeof(char));
+        if (readLine(f, line, LINE_MAX_SIZE) == NULL) {
+            break;
+        }
         bool isPushed = false;
         repeatPush:
         mtx_lock(&mutex);
@@ -169,29 +177,41 @@ int runReaderThread(void* arg) {
         }
         free(path);
     }
+    printf("Reader Thread is stopping\n");
+    mtx_lock(&mutex);
     stopSignal = true;
+    cnd_broadcast(&condition);
+    mtx_unlock(&mutex);
 
     return 0;
 }
 
 int runWorkerThread(void* arg) {
     int id = *((int*)arg);
-    printf("Thread %d is started\n", id);
+    printf("Worker thread %d is started\n", id);
+    int linesCounter = 0;
     for(;;) {
         struct LineEntry* e;
-        if (mtx_timedlock(&mutex, &(struct timespec){.tv_nsec=1000})) {
-            while ((e = pop(linesStack)) == NULL) {
+        mtx_lock(&mutex);
+        while ((e = pop(linesStack)) == NULL) {
+            if (stopSignal) {
+                mtx_unlock(&mutex);
+                goto exitLabel;
+            } else {
                 cnd_wait(&condition, &mutex);
             }
-            mtx_unlock(&mutex);
-        } else if (stopSignal) {
-            break;
         }
-        //TODO process entry
+        mtx_unlock(&mutex);
         //printLineEntry(e);
+        struct LogLine* logLine =  createLogLine(getLine(e));
+        if (logLine != NULL) {
+            destroyLogLine(logLine);
+        }
+        destroyLine(e);
+        linesCounter++;
     }
 
-    printf("Thread %d is stopping\n", id);
-
+    exitLabel:
+    printf("Worker thread %d is stopping, processed lines = %d\n", id, linesCounter);
     return EXIT_SUCCESS;
 }

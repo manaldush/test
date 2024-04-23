@@ -1,7 +1,8 @@
-#include "lines.h"
+#include "line.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 struct LogLine
 {
@@ -16,47 +17,48 @@ static bool isEndOfStr(char* l) {
 }
 
 static char* getEntity(char** line, bool skip) {
-    char* l = *line;
-    if (isEndOfStr(l)) {
+
+    if (isEndOfStr(*line)) {
         return NULL;
     }
     char termChar = ' ';
-    if (*l == '-') {
-        l++;
-        if (!isEndOfStr(l)) {
+    if (**line == '-') {
+        (*line)++;
+        if (!isEndOfStr(*line)) {
             // space expected, move ptr forward
-            l++;
+            (*line)++;
         }
         return NULL;
-    } else if (*l == '"') {
+    } else if (**line == '"') {
         termChar = '"';
-        if (*(l+1) == '-' && *(l+2) == '"') {
-            l+=3;
-            if (!isEndOfStr(l)) {
+        if (*((*line)+1) == '-' && *((*line)+2) == '"') {
+            (*line)+=3;
+            if (!isEndOfStr(*line)) {
                 // space expected, move ptr forward
-                l++;
+                (*line)++;
             }
             return NULL;
         } else {
-            l++;
+            (*line)++;
         }
-    } else if (*l == '[') {
-        l++;
+    } else if (**line == '[') {
+        (*line)++;
+        termChar = ']';
     }
 
     int len = 0;
-    char* startPtr = l;
+    char* startPtr = *line;
 
-    for(;*l != termChar && !isEndOfStr(l);l++, len++);
+    for(;(**line) != termChar && !isEndOfStr(*line);(*line)++, len++);
 
     if (termChar == '"' || termChar == ']') {
-        l++;
-        if (!isEndOfStr(l)) {
+        (*line)++;
+        if (!isEndOfStr(*line)) {
             // space expected, move ptr forward
-            l++;
+            (*line)++;
         }
     } else {
-        l++;
+        (*line)++;
     }
 
     if (skip) return NULL;
@@ -73,7 +75,6 @@ static char* getEntity(char** line, bool skip) {
 }
 
 struct LogLine* createLogLine(char* l) {
-    
     getEntity(&l, true);
     getEntity(&l, true);
     getEntity(&l, true);
@@ -81,9 +82,13 @@ struct LogLine* createLogLine(char* l) {
 
     //get uri
     char* requestLine = getEntity(&l, false);
-    getEntity(&l, true);
-    char* uri = getEntity(&l, true);
-    free(requestLine);
+    if (requestLine == NULL) {
+        return NULL;
+    }
+    char* requestLineBuffer = requestLine;
+    getEntity(&requestLine, true);
+    char* uri = getEntity(&requestLine, false);
+    free(requestLineBuffer);
 
     getEntity(&l, true);
 
@@ -124,4 +129,13 @@ void destroyLogLine(struct LogLine* line) {
         free(line->uri);
     }
     free(line);
+}
+
+void printLogLine(struct LogLine* line) {
+    if (line != NULL) {
+        printf("Referer = %s, size = %d,  URI = %s\n", 
+        line->referer == NULL ? "NULL" : line->referer,
+        line->size,
+        line->uri == NULL ? "NULL" : line->uri);
+    }
 }
