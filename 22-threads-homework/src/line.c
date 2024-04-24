@@ -93,25 +93,22 @@ struct LogLine* createLogLine(char* l) {
     getEntity(&l, true);
 
     //get size
-    char* size = getEntity(&l, false);
-    if (size == NULL) {
-        return NULL;
-    }
-    char* zero = "0";
     int bytesNumber = 0;
-    if (strcmp(size, zero) != 0) {
-        bytesNumber = atoi(size);
-        if (bytesNumber == 0) {
-            //parse error
-            free(size);
-            return NULL;
+    char* size = getEntity(&l, false);
+    if (size != NULL) {
+        char* zero = "0";
+        if (strcmp(size, zero) != 0) {
+            bytesNumber = atoi(size);
         }
+        free(size);       
     }
-    free(size);
 
     //get referer
     char* referer = getEntity(&l, false);
 
+    if (referer == NULL && uri == NULL) {
+        return NULL;
+    }
     struct LogLine* logLine = malloc(sizeof(struct LogLine));
 
     logLine->referer = referer;
@@ -138,4 +135,8 @@ void printLogLine(struct LogLine* line) {
         line->size,
         line->uri == NULL ? "NULL" : line->uri);
     }
+}
+
+char* getReferer(struct LogLine* line) {
+    return line->referer;
 }

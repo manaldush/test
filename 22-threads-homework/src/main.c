@@ -8,6 +8,7 @@
 #include "stack.h"
 #include "file.h"
 #include "line.h"
+#include "referers.h"
 
 #define LINE_MAX_SIZE 1024
 
@@ -16,6 +17,11 @@ typedef struct DirInfo
     DIR* dir;
     const char* dirName;
 } DirInfo;
+
+typedef struct WorkerInfo {
+    int threadId;
+    struct Referers* referers;
+} WorkerInfo;
 
 struct LinesStack* linesStack;
 cnd_t condition;
@@ -72,11 +78,11 @@ int main(int argc, char** argv) {
 
     //start worker threads
     thrd_t* workerThreads = malloc(threadNumber * sizeof(thrd_t));
-    int* threadId = malloc(threadNumber * sizeof(int));
+    WorkerInfo* workerInfo = calloc(threadNumber, sizeof(threadNumber));
     int startedWorkerThreadNumber = 0;
     for(;startedWorkerThreadNumber < threadNumber; ) {
-        threadId[startedWorkerThreadNumber] = startedWorkerThreadNumber;
-        if(thrd_create(&workerThreads[startedWorkerThreadNumber], runWorkerThread, (threadId + startedWorkerThreadNumber)) != thrd_success) {
+        workerInfo[startedWorkerThreadNumber] = (WorkerInfo) { .threadId = (startedWorkerThreadNumber), .referers = initReferers()};
+        if(thrd_create(&workerThreads[startedWorkerThreadNumber], runWorkerThread, (workerInfo + startedWorkerThreadNumber)) != thrd_success) {
             fprintf(stderr, "Worker thread can't be created\n");
             status = EXIT_FAILURE;
             goto workersCloseLabel;
@@ -105,19 +111,24 @@ int main(int argc, char** argv) {
 
     workersCloseLabel:
     stopSignal = true;
+    struct Referers* referers = initReferers();
     while(startedWorkerThreadNumber > 0) {
         int id = startedWorkerThreadNumber-1;
-        if (thrd_join(workerThreads[id], (threadId + id)) != thrd_success) {
+        if (thrd_join(workerThreads[id], NULL) != thrd_success) {
             fprintf(stderr, "Worker thread can't be joined\n");
             thrd_detach(workerThreads[startedWorkerThreadNumber-1]);
             status = EXIT_FAILURE;
         } else {
             printf("Worker thread %d has been stopped\n", id);
+            mergeReferers(referers, workerInfo[id].referers);
+            destroyReferers(workerInfo[id].referers);
         }
         startedWorkerThreadNumber--;
     }
+    printTopReferers(referers);
+    destroyReferers(referers);
     free(workerThreads);
-    free(threadId);
+    free(workerInfo);
 
     mtx_destroy(&mutex);
     fprintf(stdout, "Mutex destroyed\n");
@@ -187,9 +198,11 @@ int runReaderThread(void* arg) {
 }
 
 int runWorkerThread(void* arg) {
-    int id = *((int*)arg);
+    WorkerInfo* workerInfo = ((WorkerInfo*)arg);
+    int id = workerInfo->threadId;
     printf("Worker thread %d is started\n", id);
     int linesCounter = 0;
+    struct Referers* referers = workerInfo->referers;
     for(;;) {
         struct LineEntry* e;
         mtx_lock(&mutex);
@@ -205,6 +218,7 @@ int runWorkerThread(void* arg) {
         //printLineEntry(e);
         struct LogLine* logLine =  createLogLine(getLine(e));
         if (logLine != NULL) {
+            putReferer(referers, getReferer(logLine), 1);
             destroyLogLine(logLine);
         }
         destroyLine(e);
