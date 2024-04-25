@@ -1,8 +1,0 @@
-{
-    "files.associations": {
-        "cstring": "c",
-        "cerrno": "c",
-        "file.h": "c",
-        "line.h": "c"
-    }
-}
