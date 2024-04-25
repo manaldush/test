@@ -19,7 +19,7 @@ all: $(NAME)
 
 $(NAME): $(OBJS)
 	mkdir -p $(BUILD_DIR)
-	$(CC) $(OBJS) -o $(FULL_NAME)
+	$(CC) $(OBJS) -o $(FULL_NAME) -pthread
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	mkdir -p $(@D)

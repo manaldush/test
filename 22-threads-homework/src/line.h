@@ -9,3 +9,7 @@ void destroyLogLine(struct LogLine* line);
 void printLogLine(struct LogLine* line);
 
 char* getReferer(struct LogLine* line);
+
+char* getUri(struct LogLine* line);
+
+int getSize(struct LogLine* line);

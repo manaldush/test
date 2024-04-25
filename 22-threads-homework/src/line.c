@@ -140,3 +140,11 @@ void printLogLine(struct LogLine* line) {
 char* getReferer(struct LogLine* line) {
     return line->referer;
 }
+
+char* getUri(struct LogLine* line) {
+    return line->uri;
+}
+
+int getSize(struct LogLine* line) {
+    return line->size;
+}

@@ -1,7 +1,9 @@
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+#include <pthread.h>
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -9,8 +11,10 @@
 #include "file.h"
 #include "line.h"
 #include "referers.h"
+#include <time.h>
 
 #define LINE_MAX_SIZE 1024
+#define REFERERS_BUCKET_SIZE 200
 
 typedef struct DirInfo
 {
@@ -21,15 +25,19 @@ typedef struct DirInfo
 typedef struct WorkerInfo {
     int threadId;
     struct Referers* referers;
+    struct Referers* uris;
 } WorkerInfo;
 
 struct LinesStack* linesStack;
-cnd_t condition;
-mtx_t mutex;
+pthread_cond_t condition;
+pthread_mutex_t mutex;
 volatile bool stopSignal = false;
 
-int runReaderThread(void* arg);
-int runWorkerThread(void* arg);
+void* runReaderThread(void* arg);
+void* runWorkerThread(void* arg);
+void destroyWorkersInfo(WorkerInfo** w, int l);
+void printCurrentTime();
+static struct Referers* merge(struct Referers** referers, int size);
 
 int main(int argc, char** argv) {
     DirInfo dirInfo;
@@ -64,25 +72,31 @@ int main(int argc, char** argv) {
         goto dirCloseLabel;
     }
 
+    printCurrentTime();
+
     linesStack = initStack();
     if (linesStack == NULL)
         goto dirCloseLabel;
 
-    if (thrd_success != cnd_init(&condition)) {
+    if (0 != pthread_cond_init(&condition, NULL)) {
         goto freeStack;
     }
 
-    if (thrd_success != mtx_init(&mutex, mtx_plain)) {
+    if (0 != pthread_mutex_init(&mutex, NULL)) {
         goto closeCondition;
     }
 
     //start worker threads
-    thrd_t* workerThreads = malloc(threadNumber * sizeof(thrd_t));
-    WorkerInfo* workerInfo = calloc(threadNumber, sizeof(threadNumber));
+    pthread_t* workerThreads = malloc(threadNumber * sizeof(pthread_t));
+    WorkerInfo** workerInfos = calloc(threadNumber, sizeof(WorkerInfo*));
     int startedWorkerThreadNumber = 0;
     for(;startedWorkerThreadNumber < threadNumber; ) {
-        workerInfo[startedWorkerThreadNumber] = (WorkerInfo) { .threadId = (startedWorkerThreadNumber), .referers = initReferers()};
-        if(thrd_create(&workerThreads[startedWorkerThreadNumber], runWorkerThread, (workerInfo + startedWorkerThreadNumber)) != thrd_success) {
+        WorkerInfo* workerInfo = calloc(1, sizeof(WorkerInfo));
+        workerInfo->threadId = startedWorkerThreadNumber;
+        workerInfo->referers = initReferers();
+        workerInfo->uris = initReferers();
+        workerInfos[startedWorkerThreadNumber] = workerInfo;
+        if(pthread_create(&workerThreads[startedWorkerThreadNumber], NULL, runWorkerThread, workerInfo) != 0) {
             fprintf(stderr, "Worker thread can't be created\n");
             status = EXIT_FAILURE;
             goto workersCloseLabel;
@@ -91,49 +105,81 @@ int main(int argc, char** argv) {
     }
 
     // start reader thread
-    thrd_t readerThread;
-    int readerThreadResult;
-    if(thrd_create(&readerThread, runReaderThread, &dirInfo) != thrd_success) {
+    pthread_t readerThread;
+    if(pthread_create(&readerThread, NULL, runReaderThread, &dirInfo) != 0) {
         fprintf(stderr, "Reader thread can't be created\n");
         status = EXIT_FAILURE;
         goto workersCloseLabel;
     }
 
-    if (thrd_join(readerThread, &readerThreadResult) != thrd_success) {
+    if (pthread_join(readerThread, NULL) != 0) {
         fprintf(stdout, "Reader thread can't be joined\n");
-        thrd_detach(readerThread);
+        pthread_detach(readerThread);
         status = EXIT_FAILURE;
         goto workersCloseLabel;
-    } else {
-        fprintf(stdout, "Reader thread was stopped\n");
     }
 
 
     workersCloseLabel:
     stopSignal = true;
-    struct Referers* referers = initReferers();
     while(startedWorkerThreadNumber > 0) {
-        int id = startedWorkerThreadNumber-1;
-        if (thrd_join(workerThreads[id], NULL) != thrd_success) {
+        WorkerInfo* workerInfo = workerInfos[startedWorkerThreadNumber-1];
+        if (pthread_join(workerThreads[workerInfo->threadId], NULL) != 0) {
             fprintf(stderr, "Worker thread can't be joined\n");
-            thrd_detach(workerThreads[startedWorkerThreadNumber-1]);
             status = EXIT_FAILURE;
-        } else {
-            printf("Worker thread %d has been stopped\n", id);
-            mergeReferers(referers, workerInfo[id].referers);
-            destroyReferers(workerInfo[id].referers);
         }
         startedWorkerThreadNumber--;
     }
-    printTopReferers(referers);
-    destroyReferers(referers);
-    free(workerThreads);
-    free(workerInfo);
 
-    mtx_destroy(&mutex);
-    fprintf(stdout, "Mutex destroyed\n");
+    if (status != EXIT_FAILURE) {
+        // referers
+        struct Referers** referers = calloc(threadNumber, sizeof(struct Referers*));
+        if (referers != NULL) {
+            for(int i = 0; i < threadNumber; i++) {
+                referers[i] = workerInfos[i]->referers;
+            }
+            if (referers == NULL) {
+                fprintf(stderr, "Statistic for referers can't be merged\n");
+                status = EXIT_FAILURE;
+            } else {
+                struct Referers* referer = merge(referers, threadNumber);
+                if (referer != NULL) {
+                    printf("Print top 10 referers\n");
+                    printTopReferers(referer);
+                }
+            }
+            free(referers);
+        }
+
+        //uris
+        struct Referers** uris = calloc(threadNumber, sizeof(struct Referers*));
+        if (uris != NULL) {
+            for(int i = 0; i < threadNumber; i++) {
+                uris[i] = workerInfos[i]->uris;
+            }
+            if (uris == NULL) {
+                fprintf(stderr, "Statistic for referers can't be merged\n");
+                status = EXIT_FAILURE;
+            } else {
+                struct Referers* uri = merge(uris, threadNumber);
+                if (uri != NULL) {
+                    printf("Print top 10 URIs\n");
+                    printTopReferers(uri);
+                }
+            }
+
+            free(uris);
+        }
+    }
+
+    free(workerThreads);
+    destroyWorkersInfo(workerInfos, threadNumber);
+
+    printCurrentTime();
+
+    pthread_mutex_destroy(&mutex);
     closeCondition:
-    cnd_destroy(&condition);
+    pthread_cond_destroy(&condition);
     freeStack:
     destroyStack(linesStack);
     dirCloseLabel:
@@ -159,13 +205,13 @@ void readLogFile(const char* fileName) {
         }
         bool isPushed = false;
         repeatPush:
-        mtx_lock(&mutex);
+        pthread_mutex_lock(&mutex);
         if ((isPushed = push(linesStack, line))) {
-            cnd_signal(&condition);
+            pthread_cond_signal(&condition);
         }
-        mtx_unlock(&mutex);
+        pthread_mutex_unlock(&mutex);
         if (!isPushed) {
-            thrd_sleep(&(struct timespec){.tv_nsec=1000}, NULL);
+            nanosleep((const struct timespec[]){{0, 10000L}}, NULL);
             goto repeatPush;
         }
     }
@@ -173,7 +219,7 @@ void readLogFile(const char* fileName) {
     closeFile(f);
 }
 
-int runReaderThread(void* arg) {
+void* runReaderThread(void* arg) {
     DirInfo* dir = (DirInfo*) arg;
     struct dirent *de;
 
@@ -188,44 +234,148 @@ int runReaderThread(void* arg) {
         }
         free(path);
     }
-    printf("Reader Thread is stopping\n");
-    mtx_lock(&mutex);
+    pthread_mutex_lock(&mutex);
     stopSignal = true;
-    cnd_broadcast(&condition);
-    mtx_unlock(&mutex);
+    pthread_cond_broadcast(&condition);
+    pthread_mutex_unlock(&mutex);
 
-    return 0;
+    return NULL;
 }
 
-int runWorkerThread(void* arg) {
+void* runWorkerThread(void* arg) {
     WorkerInfo* workerInfo = ((WorkerInfo*)arg);
-    int id = workerInfo->threadId;
-    printf("Worker thread %d is started\n", id);
-    int linesCounter = 0;
     struct Referers* referers = workerInfo->referers;
+    struct Referers* curReferers = NULL;
+    struct Referers* uris = workerInfo->uris;
+    struct Referers* curUris = NULL;
     for(;;) {
         struct LineEntry* e;
-        mtx_lock(&mutex);
+        pthread_mutex_lock(&mutex);
         while ((e = pop(linesStack)) == NULL) {
             if (stopSignal) {
-                mtx_unlock(&mutex);
+                pthread_mutex_unlock(&mutex);
                 goto exitLabel;
             } else {
-                cnd_wait(&condition, &mutex);
+                pthread_cond_wait(&condition, &mutex);
             }
         }
-        mtx_unlock(&mutex);
+        pthread_mutex_unlock(&mutex);
         //printLineEntry(e);
         struct LogLine* logLine =  createLogLine(getLine(e));
         if (logLine != NULL) {
-            putReferer(referers, getReferer(logLine), 1);
+            //referers
+            if (curReferers == NULL) {
+                curReferers = initReferers();
+            }
+            putReferer(curReferers, getReferer(logLine), 1);
+            if (getReferersSize(curReferers) > REFERERS_BUCKET_SIZE) {
+                mergeReferers(referers, curReferers);
+                destroyReferers(curReferers);
+                curReferers = NULL;
+            }
+
+            //uris
+            if (curUris == NULL) {
+                curUris = initReferers();
+            }
+            putReferer(curUris, getUri(logLine), getSize(logLine));
+            if (getReferersSize(curUris) > REFERERS_BUCKET_SIZE) {
+                mergeReferers(uris, curUris);
+                destroyReferers(curUris);
+                curUris = NULL;
+            }
             destroyLogLine(logLine);
         }
         destroyLine(e);
-        linesCounter++;
     }
 
     exitLabel:
-    printf("Worker thread %d is stopping, processed lines = %d\n", id, linesCounter);
-    return EXIT_SUCCESS;
+    if (curReferers != NULL) {
+        mergeReferers(referers, curReferers);
+        destroyReferers(curReferers);
+    }
+    return NULL;
+}
+
+void destroyWorkersInfo(WorkerInfo** w, int l) {
+    if (l > 0) {
+        for (int i = 0; i < l; i++)
+        {
+            WorkerInfo* wRef = *(w + i);
+            destroyReferers(wRef->referers);
+            free(wRef);
+        }
+    }
+    free(w);
+}
+
+void printCurrentTime() {
+    time_t rawtime;
+    struct tm * timeinfo;
+
+    time ( &rawtime );
+    timeinfo = localtime ( &rawtime );
+    printf ( "Current local time and date: %s\n", asctime (timeinfo) );
+}
+
+void* runMergerThread(void* arg) {
+    struct Referers** pair = (struct Referers**) arg;
+    mergeReferers(pair[0], pair[1]);
+    free(pair);
+    return NULL;
+}
+
+static struct Referers* merge(struct Referers** referers, int size) {
+    if (size == 1) {
+        return *referers;
+    }
+    struct Referers* result = referers[0];
+    bool b = ((size % 2) == 0);
+    int threadsNumber = b ? (size / 2) : (size - 1) / 2;
+    int nSize = b ? (size / 2) : (size - 1) / 2 + 1;
+    pthread_t* mergerThreads = calloc(threadsNumber, sizeof(pthread_t));
+    if (mergerThreads == NULL) {
+        return NULL;
+    }
+    struct Referers** nReferers = calloc(nSize, sizeof(struct Referers*));
+    if (nReferers == NULL) {
+        free(mergerThreads);
+        return NULL;
+    }
+    int createdThrNumber = 0;
+    for(int thrNumber = 0; thrNumber < threadsNumber; thrNumber++) {
+        struct Referers** pair = calloc(2, sizeof(struct Referers*));
+        if (pair == NULL) {
+            result = NULL;
+            break;
+        }
+        pair[0] = referers[thrNumber * 2];
+        pair[1] = referers[thrNumber * 2 + 1];
+        nReferers[thrNumber] = pair[0];
+        if(pthread_create(&mergerThreads[thrNumber], NULL, runMergerThread, pair) != 0) {
+            printf ( "Merge thread start error\n");
+            result = NULL;
+            break;
+        }
+        createdThrNumber++;
+    }
+    if (result != NULL && !b) {
+        nReferers[nSize - 1] = referers[size - 1];
+    }
+
+    for(int thrNumber = 0; thrNumber < createdThrNumber; thrNumber++) {
+        if (pthread_join(mergerThreads[thrNumber], NULL) != 0) {
+            printf("Merger thread can't be joined\n");
+            result = NULL;
+        }
+    }
+
+    if (result != NULL) {
+        result = merge(nReferers, nSize);
+    }
+
+    free(nReferers);
+    free(mergerThreads);
+    
+    return result;
 }
