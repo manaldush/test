@@ -10,8 +10,9 @@
 #include <execinfo.h>
 
 #define BT_BUF_SIZE 100
+#define INIT_LINE_SIZE 64
 
-static const char *loggerLevelsStr[] = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR"};
+static const char *loggerLevelsStr[] = {"UNKNOWN", "TRACE", "DEBUG", "INFO", "WARN", "ERROR"};
 
 static __thread void *buffer[BT_BUF_SIZE];
 
@@ -57,9 +58,27 @@ struct Logger
     LoggerContext *ctx;
 };
 
+char* copyString(char* src)
+{
+    int size = INIT_LINE_SIZE;
+    for(int i = 1; i <= 3; i++) {
+        char* dest = malloc(sizeof(char) * size);
+        for(int ii = 0; ii < size; ii++) {
+            if ((*(dest + ii) = *(src + ii)) == '\0') {
+                return dest;
+            }
+        }
+        free(dest);
+        size *= 2;
+    }
+
+
+    return NULL;
+}
+
 LoggerLevel str2LoggerLevel(char* s) {
     for (int i = TRACE; i <= ERROR; i++) {
-        if (strcmp(s, loggerLevelsStr[i - 1]) == 0) {
+        if (strcmp(s, loggerLevelsStr[i]) == 0) {
             return i;
         }
     }
@@ -131,7 +150,7 @@ Logger *initLogger(char *path, LoggerLevel level)
     if (context == NULL)
     {
         fprintf(stderr, "Malloc error during logger initialization\n");
-        goto freeLoggerMutex;
+        goto freeContext;
     }
     context->file = file;
     context->messages = messages;
@@ -142,22 +161,32 @@ Logger *initLogger(char *path, LoggerLevel level)
     context->mutex = mutex;
     context->loggerLevel = level;
 
-    if (pthread_create(loggerThr, NULL, runLoggerThread, context) != 0)
-    {
-        fprintf(stderr, "Worker thread can't be created\n");
-        goto freeLoggerMutex;
-    }
-
     logger = malloc(sizeof(Logger));
     if (logger == NULL)
     {
         fprintf(stderr, "Malloc error during logger initialization\n");
-        goto freeMessages;
+        goto freeLoggerMutex;
     }
+
+    if (pthread_create(loggerThr, NULL, runLoggerThread, context) != 0)
+    {
+        fprintf(stderr, "Worker thread can't be created\n");
+        goto freeLogger;
+    }
+
+    pthread_mutex_lock(context->mutex);
+    context->status = STARTED;
+    pthread_cond_signal(context->condition);
+    pthread_mutex_unlock(context->mutex);
+
     logger->ctx = context;
     logger->loggerThr = loggerThr;
     goto returnPoint;
 
+freeLogger:
+    free(logger);
+freeContext:
+    free(context);
 freeLoggerMutex:
     free(mutex);
 freeLoggerCond:
@@ -176,9 +205,13 @@ returnPoint:
 void *runLoggerThread(void *arg)
 {
     LoggerContext *context = ((LoggerContext *)arg);
-    context->status = STARTED;
-    MessageEntry *entry = NULL;
     pthread_mutex_lock(context->mutex);
+initializationStep:
+    if (context->status != STARTED) {
+        pthread_cond_wait(context->condition, context->mutex);
+        goto initializationStep;
+    }
+    MessageEntry *entry = NULL;
 nextIteration:
     entry = context->messages->top;
     if (entry == NULL)
@@ -244,7 +277,12 @@ static void logMessage(Logger *logger, char *s, LoggerLevel level)
             fprintf(stderr, "Malloc error during printing message\n");
             return;
         }
-        entry->message = s;
+        entry->message = copyString(s);
+        if (entry->message == NULL) {
+            free(entry);
+            fprintf(stderr, "Malloc error during copy log string\n");
+            return;
+        }
         entry->stackTrace = NULL;
         entry->nptr = 0;
         if (level == ERROR) {
