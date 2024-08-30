@@ -4,7 +4,7 @@ SRC_DIR     := src
 OBJ_DIR     := obj
 BUILD_DIR   := build
 SRCS        := \
-	main.c crc32.h
+	main.c crc32.c
 SRCS        := $(SRCS:%=$(SRC_DIR)/%)
 OBJS        := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
@@ -23,7 +23,7 @@ $(NAME): $(OBJS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	mkdir -p $(@D)
-	$(CC) $(CFLAGS) -g -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
 	$(RM) $(OBJS)
