@@ -1,5 +1,5 @@
 NAME := rarJpegChecker
-
+test
 SRC_DIR     := src
 OBJ_DIR     := obj
 BUILD_DIR   := build
