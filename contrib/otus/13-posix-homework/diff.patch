@@ -1,0 +1,44 @@
+--- clib-package.c	2020-09-07 19:51:23.000000000 -0400
++++ clib/src/common/clib-package.c	2024-03-10 15:11:09.298766006 -0400
+@@ -654,6 +654,8 @@
+     if (retries-- <= 0) {
+       goto error;
+     } else {
++      // OOM fix
++      http_get_free(res);
+ #ifdef HAVE_PTHREADS
+       init_curl_share();
+       _debug("GET %s", json_url);
+@@ -1380,7 +1382,10 @@
+ #ifdef HAVE_PTHREADS
+     pthread_mutex_lock(&lock.mutex);
+ #endif
+-    hash_set(visited_packages, strdup(pkg->name), "t");
++    // OOM fix
++    if (!hash_has(visited_packages, pkg->name)) {
++      hash_set(visited_packages, strdup(pkg->name), "t");
++    }
+ #ifdef HAVE_PTHREADS
+     pthread_mutex_unlock(&lock.mutex);
+ #endif
+@@ -1489,7 +1494,8 @@
+       while (--i >= 0) {
+         fetch_package_file_thread_data_t *data = fetchs[i];
+         int *status = 0;
+-        pthread_join(data->thread, (void **)status);
++        //OOM fix
++        pthread_join(data->thread, (void **)&status);
+         free(data);
+         fetchs[i] = NULL;
+ 
+@@ -1518,8 +1524,8 @@
+   while (--i >= 0) {
+     fetch_package_file_thread_data_t *data = fetchs[i];
+     int *status = 0;
+-
+-    pthread_join(data->thread, (void **)status);
++    //OOM fix
++    pthread_join(data->thread, (void **)&status);
+ 
+     (void)pending--;
+     free(data);

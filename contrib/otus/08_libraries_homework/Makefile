@@ -1,0 +1,48 @@
+NAME := wheatherChecker
+
+LIBCURL_EXIST := $(shell pkg-config --exists libcurl; echo $$?)
+
+ifneq ($(LIBCURL_EXIST),0)
+    $(error "Libcurl library isn't installed...")
+endif
+
+JSONC_EXIST := $(shell pkg-config --exists json-c; echo $$?)
+
+ifneq ($(JSONC_EXIST),0)
+    $(error "Json-c library isn't installed...")
+endif
+
+
+SRC_DIR     := src
+OBJ_DIR     := obj
+BUILD_DIR   := build
+SRCS        := \
+	main.c
+SRCS        := $(SRCS:%=$(SRC_DIR)/%)
+OBJS        := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
+
+FULL_NAME   := $(BUILD_DIR)/$(NAME)
+
+CC          := gcc
+CFLAGS      := -Wall -Wextra -Wpedantic -std=c11 `pkg-config --cflags libcurl json-c`
+
+RM          := rm -f
+
+all: $(NAME)
+
+$(NAME): $(OBJS)
+	mkdir -p $(BUILD_DIR)
+	$(CC) $(OBJS) -o $(FULL_NAME) `pkg-config --libs libcurl json-c`
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	$(RM) $(OBJS)
+	$(RM) $(FULL_NAME)
+
+cppcheck:
+	cppcheck -q -j4 --enable=warning,style,performance,portability $(SRC_DIR)
+
+.PHONY: clean
